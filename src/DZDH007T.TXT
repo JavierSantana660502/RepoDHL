@@ -1,0 +1,637 @@
+     H DEBUG OPTION(*NODEBUGIO:*SRCSTMT)  INDENT('|')
+      *****************************************************************
+      *                                                               *
+      *  System Name..: System21 351                                  *
+      *  Module.......: PL/SL TAX - IMPUESTOS                         *
+      *  Program Name.: OP Bajada Padrón Régimen de Recaudación       *
+      *                    por Sujeto                                 *
+      *  Program No...: DZDH007 based on DNZ311                       *
+      *  Date.........: 06-10-2008                                    *
+      *  Author.......: Sanchez, Marcelo A. (GXXI)                    *
+      *  Answerlink...: ........                                      *
+      *                                                               *
+      *  Comment......: Bandeja de recepción de archivo via FTP       *
+      *****************************************************************
+      *  Modification Control                                         *
+      *  ~~~~~~~~~~~~~~~~~~~~                                         *
+      *  Fix No.    By   Date     Description                         *
+      *  ~~~~~~~~  ~~~~ ~~~~~~~~  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *
+      *                                                               *
+      *  DH001     OAC 2010/06/04 Crea basado en dnz311
+      *                           Cambia archivo de salida y archivo clientes
+DH002 *  DH002     DAG 2011/03/01 Crea múltiples registros en el dzdhp11.
+DH002 *                           Esto es porque pueden existir N clientes  s
+DH002 *                           ó proveedores con el mismo nro. de
+DH002 *                           CUIT.
+DH002 *                           Ticket: 4349800
+DH003 *  DH003     LSU 2014/08/06 Separacion de archivo Padron en Percepciones *
+DH003 *                           y Retenciones.                               *
+      *****************************************************************
+     FCOMPANY   IF   E           K DISK    INFSR(*PSSR)
+     FDNZ310PTU UF   E             DISK    INFSR(*PSSR)
+     FRAP80L01  IF   E           K DISK    INFSR(*PSSR)
+DH001FSLP05L02  IF   E           K DISK    INFSR(*PSSR)
+DH001FpLP05L03  IF   E           K DISK    INFSR(*PSSR)
+     FSLP05IB1  UF A E           K DISK    INFSR(*PSSR)
+     FPLP05IB1  UF A E           K DISK    INFSR(*PSSR)
+     F*DNZ311P   O    E           K DISK    INFSR(*PSSR)
+     FDzdhp11T  O    E           K DISK    INFSR(*PSSR)
+     D****************************************************************
+     D*      Fetch external description of LDA
+     D LDA           E DS                  EXTNAME(LDA)
+     D  L#CUSN               482    489
+     D  U#PSAR               499    508
+     D  U#PRMT               509    512
+     D*      Fetch external description of Program Status DS
+     D PSTAT         ESDS                  EXTNAME(PSDS)
+      *
+     D                 DS           121
+     D TXT310                  1    121
+DH003 * Identificacion de registro
+DH003D**TIP_REG                1      1
+      * Fecha de Publicación   Formato DDMMAAAA
+DH003D  FCH_PUBL_A             1      8
+DH003D**FCH_PUBL_A             3     10
+      * Fecha de Vigencia Desde  Formato DDMMAAAA
+DH003D  FCH_VIGD_A            10     17
+DH003D**FCH_VIGD_A            12     19
+      * Fecha de Vigencia Hasta  Formato DDMMAAAA
+DH003D  FCH_VIGH_A            19     26
+DH003D**FCH_VIGH_A            21     28
+      * Cuit del Sujeto
+DH003D  NRO_CUIT_A            28     38
+DH003D**NRO_CUIT_A            30     40
+      * Tipo-Contr-Insc   C’-Convenio Mutilateral  D’-Directo Pcia.Bs.As.
+DH003D  TIP_INSC_A            40     40
+DH003D**TIP_INSC_A            42     42
+      * S o N   S’ Indica que el sujeto se incorpora al padrón y B Baja)
+DH003D  COD_ABM__A            42     42
+DH003D**COD_ABM__A            44     44
+      * S o N   indica si hubo o no cambio de alícuota con respecto
+DH003D  CAM_ALIC_A            44     44
+DH003D**CAM_ALIC_A            46     46
+      * Alícuota-Percepción
+DH003D  ALIC_PER_A            46     49
+DH003D**ALIC_PER_A            48     51
+      * Alícuota-Retención
+DH003D  ALIC_RET_A            51     54
+DH003D**ALIC_RET_A            48     51
+      * Nro-Grupo-Percepción
+DH003D  NROG_PER_A            56     57
+DH003D**NROG_PER_A            53     54
+      * Nro-Grupo-Retención
+DH003D  NROG_RET_A            59     60
+DH003D**NROG_RET_A            53     54
+      **
+     D  FCH_PUBL_D     S               D   DATFMT(*ISO)
+     D  FCH_VIGD_D     S               D   DATFMT(*ISO)
+     D  FCH_VIGH_D     S               D   DATFMT(*ISO)
+     D  PERC_IIBB      S                   LIKE(CODI05) INZ('PER    ')
+     D  RETE_IIBB      S                   LIKE(CODI05) INZ('RET BUE')
+     D  PERC_IIBB_DHL  S                   LIKE(CODI05) INZ('PER BUE')
+     D  fec_hoy_iso    S               D   DATFMT(*ISO)
+     D                                     INZ(*SYS)
+      **************************************************************************
+     c     *like         define    nro_cuit_a    Nro_cuit_dhl
+     c                   eval      Nro_cuit_dhl = %trim(%subst(VTID01:1:2)
+     c                                                + %subst(VTID01:4:8)
+     c                                                + %subst(VTID01:13:1))
+      * Busca datos de DHL
+     C                   read      DNZ310PTU                              99
+     C                   dow       *IN99 = '0'
+     C                   if        NRO_CUIT_A = Nro_cuit_dhl
+      * Alícuota-Percepción
+     C                   if        *in80 = '0'
+DH003 * Identificacion de registro
+  |  C*****              if        TIP_REG = 'P'
+DH003 *
+     C                   if        %subst(ALIC_PER_A:1:1) >= '0' and
+     C                             %subst(ALIC_PER_A:1:1) <= '9' and
+     C                             %subst(ALIC_PER_A:3:1) >= '0' and
+     C                             %subst(ALIC_PER_A:3:1) <= '9' and
+     C                             %subst(ALIC_PER_A:4:1) >= '0' and
+     C                             %subst(ALIC_PER_A:4:1) <= '9'
+     C                   eval      vr003a = %subst(ALIC_PER_A:1:1)
+     C                                    + %subst(ALIC_PER_A:3:2)
+     C                   move      vr003a        ALIC_PER_N        3 2
+     C                   else
+     C                   clear                   vr003a            3
+     C                   move      '1'           *in80
+     C                   endif
+DH003 * Identificacion de registro
+  |  C*****              endif
+DH003 *
+     C                   endif
+      * Fecha de Vigencia Hasta  Formato DDMMAAAA
+     C                   if        *in80 = '0'
+     C                   testN                   FCH_VIGH_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+     C                   if        *in80 = '0'
+     C                   MOVE      FCH_VIGH_A    FCH_VIGH_N        8 0
+     C     *EUR          TEST(D)                 FCH_VIGH_N             80
+     C                   if        *in80 = '0'
+     C     *EUR          MOVE      FCH_VIGH_N    FCH_VIGH_D
+     C                   endif
+     C                   endif
+     C                   endif
+     c                   if        *in80 = '0'
+     c     *like         define    APE311        APE311_DHL
+     c     *like         define    FVH311        FVH311_DHL
+     c                   z-add     ALIC_PER_N    APE311_DHL
+     C                   move      FCH_VIGH_D    FVH311_DHL
+     C                   endif
+     C                   eval      *in99 = '1'
+     C                   else
+     C                   read      DNZ310PTU                              99
+     c                   endif
+     C                   enddo
+      *---------------------------------------------
+      *** Ciclo de lectura de bandeja de entrada
+      *---------------------------------------------
+     C     1             setll     DNZ310PTU
+     C                   read      DNZ310PTU                              80
+     C                   DOW       *IN80 = '0'
+      *  Fecha de Publicación   Formato DDMMAAAA
+     C                   if        *in80 = '0'
+     C                   testN                   FCH_PUBL_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+     C                   if        *in80 = '0'
+     C                   MOVE      FCH_PUBL_A    FCH_PUBL_N        8 0
+     C     *EUR          TEST(D)                 FCH_PUBL_N             80
+     C                   if        *in80 = '0'
+     C     *EUR          MOVE      FCH_PUBL_N    FCH_PUBL_D
+     C                   endif
+     C                   endif
+     C                   endif
+      *  Fecha de Vigencia Desde  Formato DDMMAAAA
+     C                   if        *in80 = '0'
+     C                   testN                   FCH_VIGD_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+     C                   if        *in80 = '0'
+     C                   MOVE      FCH_VIGD_A    FCH_VIGD_N        8 0
+     C     *EUR          TEST(D)                 FCH_VIGD_N             80
+     C                   if        *in80 = '0'
+     C     *EUR          MOVE      FCH_VIGD_N    FCH_VIGD_D
+     C                   endif
+     C                   endif
+     C                   endif
+      * Fecha de Vigencia Hasta  Formato DDMMAAAA
+     C                   if        *in80 = '0'
+     C                   testN                   FCH_VIGH_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+     C                   if        *in80 = '0'
+     C                   MOVE      FCH_VIGH_A    FCH_VIGH_N        8 0
+     C     *EUR          TEST(D)                 FCH_VIGH_N             80
+     C                   if        *in80 = '0'
+     C     *EUR          MOVE      FCH_VIGH_N    FCH_VIGH_D
+     C                   endif
+     C                   endif
+     C                   endif
+      * Cuit del Sujeto
+     C                   if        *in80 = '0'
+     C                   testN                   NRO_CUIT_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+     C                   if        *in80 = '0'
+     C                   MOVE      NRO_CUIT_A    NRO_CUIT_N       11 0
+     C                   endif
+     C                   endif
+      * Alícuota-Percepción
+     C                   if        *in80 = '0'
+DH003 * Identificacion de registro
+  |  C*****              if        TIP_REG = 'P'
+DH003 *
+     C                   if        %subst(ALIC_PER_A:1:1) >= '0' and
+     C                             %subst(ALIC_PER_A:1:1) <= '9' and
+     C                             %subst(ALIC_PER_A:3:1) >= '0' and
+     C                             %subst(ALIC_PER_A:3:1) <= '9' and
+     C                             %subst(ALIC_PER_A:4:1) >= '0' and
+     C                             %subst(ALIC_PER_A:4:1) <= '9'
+     C                   eval      vr003a = %subst(ALIC_PER_A:1:1)
+     C                                    + %subst(ALIC_PER_A:3:2)
+     C                   move      vr003a        ALIC_PER_N        3 2
+     C                   else
+     C                   clear                   vr003a            3
+     C                   move      '1'           *in80
+     C                   endif
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 *
+     C                   endif
+      * Alícuota-Retención
+     C                   if        *in80 = '0'
+DH003 * Identificacion de registro
+  |  C*****              if        TIP_REG = 'R'
+DH003 *
+     C                   if        %subst(ALIC_RET_A:1:1) >= '0' and
+     C                             %subst(ALIC_RET_A:1:1) <= '9' and
+     C                             %subst(ALIC_RET_A:3:1) >= '0' and
+     C                             %subst(ALIC_RET_A:3:1) <= '9' and
+     C                             %subst(ALIC_RET_A:4:1) >= '0' and
+     C                             %subst(ALIC_RET_A:4:1) <= '9'
+     C                   eval      vr003a = %subst(ALIC_RET_A:1:1)
+     C                                    + %subst(ALIC_RET_A:3:2)
+     C                   move      vr003a        ALIC_RET_N        3 2
+     C                   else
+     C                   move      '1'           *in80
+     C                   endif
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 *
+     C                   endif
+      *
+     C                   if        *in80 = '0'
+DH003 * Identificacion de registro
+  |  C*****              if        TIP_REG = 'P'
+DH003 *
+     C                   testN                   NROG_PER_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 *
+     C                   endif
+      *
+     C                   if        *in80 = '0'
+DH003 * Identificacion de registro
+  |  C*****              if        TIP_REG = 'R'
+DH003 * Identificacion de registro
+     C                   testN                   NROG_RET_A           81
+     C                   if        *in81 = '0'
+     C                   eval      *in80 = *on
+     C                   endif
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 * Identificacion de registro
+     C                   endif
+      *
+     C                   if        *in80 = '0'
+     C                   move      FCH_PUBL_D    FPU311
+     C                   move      FCH_VIGD_D    FVD311
+     C                   move      FCH_VIGH_D    FVH311
+     C                   move      NRO_CUIT_N    CUI311
+     C                   move      TIP_INSC_A    TCI311
+     C                   move      COD_ABM__A    ABM311
+     C                   move      CAM_ALIC_A    MCA311
+DH003 * Identificacion de registro
+  |  C*****              if        TIP_REG = 'P'
+DH003 *
+     C                   move      ALIC_PER_N    APE311
+DH003 * Identificacion de registro
+  |  C*****              Move      *zeros        ARE311
+  |  C*****              Endif
+  |   * Identificacion de registro
+  |  C*****              if        TIP_REG = 'R'
+DH003 *
+     C                   move      ALIC_RET_N    ARE311
+DH003 * Identificacion de registro
+  |  C*****              move      *zeros        APE311
+  |  C*****              Endif
+  |   * Identificacion de registro
+  |  C*****              if        TIP_REG = 'P'
+DH003 *
+     C                   move      NROG_PER_A    NGP311
+DH003 * Identificacion de registro
+  |  C*****              move      *zeros        NGR311
+  |  C*****              Endif
+  |   *
+  |   * Identificacion de registro
+  |  C*****              if        TIP_REG = 'R'
+DH003 * I
+     C                   move      NROG_RET_A    NGR311
+DH003 * Identificacion de registro
+  |  C*****              move      *zeros        NGP311
+  |  C*****              Endif
+DH003 *                 e registro
+      *
+     C                   move      L#CONO        CON311
+     c                   clear                   CUS311
+     c                   clear                   SUP311
+     c                   MOVE      P#USER        USR311
+     c                   time                    TIM311
+      *
+     C                   movel     L#CONO        CONO05
+     C                   movel     NRO_CUIT_A    CUIT05
+     C                   clear                   Marca_Existe      1
+DH001c                   movel     *BLANKS       CORC05
+DH001c                   movel     CUIT05        CORC05
+DH003 * Identificacion de registro
+  |  C*****              If        TIP_REG = 'P'
+DH003 *
+      * Verifica si existe como cliente.
+     C*    KeyRAP80L01   setll     SLR05E
+     C*    KeyRAP80L01   reade     SLR05E                                 99
+DH001C     Keycus        setll     SLR05
+DH001C     Keycus        reade     SLR05                                  99
+     C                   dow       *in99 = '0'
+     c                   movel     cusn05        CUS311
+     C                   movel     '1'           Marca_Existe
+     C                   MOVE      PERC_IIBB     CODI05
+      * Verifica si tiene que actualizar percepciones.
+     C     KeySLP05IB1   CHAIN     SLP05IB1                           99
+      *
+     C                   if        *IN99 = '0'
+     C     *CYMD         MOVE      FVH311        W_FEXI05
+     C                   IF        W_FEXI05 <> FEXI05 OR
+     C                             APE311 <> PEXI05
+     C* Por ahora no     MOVE      TCI311        CATI05
+     C                   clear                   CATI05
+     C                   IF        ABM311 <> 'B' and APE311 <> 0
+     C                   MOVE      '1'           POSI05
+     C                   ELSE
+     C                   MOVE      '0'           POSI05
+     C                   ENDIF
+     C                   Z-ADD     APE311        PEXI05
+     C                   Z-ADD     W_FEXI05      FEXI05
+     C                   UPDATE    SLR05I
+     C                   ENDIF
+      *
+     C                   else
+      *
+     C     *CYMD         MOVE      FVH311        W_FEXI05
+     C                   MOVE      PERC_IIBB     CODI05
+     C* Por ahora no     MOVE      TCI311        CATI05
+     C                   clear                   CATI05
+     C                   IF        ABM311 <> 'B' and APE311 <> 0
+     C                   MOVE      '1'           POSI05
+     C                   ELSE
+     C                   MOVE      '0'           POSI05
+     C                   ENDIF
+     C                   CLEAR                   NROI05
+     C                   Z-ADD     APE311        PEXI05
+     C                   Z-ADD     W_FEXI05      FEXI05
+     C                   WRITE     SLR05I
+     C                   endif
+DH002C                   if        Marca_Existe = '1'
+DH002C                   write     DZR311P
+DH002C                   endif
+      *
+     C*    KeyRAP80L01   reade     SLR05E                                 99
+DH001C     Keycus        reade     SLR05                                  99
+     C                   ENDdo
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 *
+      *------------------------------------------------------------
+      * Verifica si existe como Proveedor
+DH001c                   movel     *BLANKS       vtid05
+DH001c                   movel     CUIT05        vtid05
+DH003 * Identificacion de registro
+  |  C*****              If        TIP_REG = 'R'
+DH003 *
+     C     KeyRAP80L01   setll     PLR05X
+     C     KeyRAP80L01   reade     PLR05X                                 99
+DH001C     KeySUP        setll     PLR05
+DH001C     Keysup        reade     PLR05                                  99
+     C                   dow       *in99 = '0'
+      * Trata retenciones.
+     c                   movel     supn05        sup311
+     C                   movel     '1'           Marca_Existe
+     C                   MOVE      RETE_IIBB     CODIP5
+      * Verifica si tiene que actualizar retenciones.
+     C     KeyPLP05IB1   CHAIN     PLP05IB1                           99
+      *
+     C                   if        *IN99 = '0'
+     C     *CYMD         MOVE      FVH311        W_FEXI05
+     C                   IF        W_FEXI05 <> FEXIP5 OR
+     C                             ARE311 <> PEXIP5
+     C                   Z-ADD     ARE311        PEXIP5
+     C                   Z-ADD     W_FEXI05      FEXIP5
+     C* Por ahora no     MOVE      TCI311        CATIP5
+     C                   IF        ABM311 <> 'B' and ARE311 <> 0
+     C                   MOVE      '1'           POSIP5
+     C                   ELSE
+     C                   MOVE      '0'           POSIP5
+     C                   ENDIF
+     C                   UPDATE    PLR05I
+     C                   ENDIF
+      *
+     C                   else
+      *
+     C                   MOVE      CONO05        CONOP5
+     C                   MOVE      SUPN05        SUPNP5
+     C     *CYMD         MOVE      FVH311        W_FEXI05
+     C                   MOVE      RETE_IIBB     CODIP5
+     C* Por ahora no     MOVE      TCI311        CATIP5
+     C                   IF        ABM311 <> 'B' and ARE311 <> 0
+     C                   MOVE      '1'           POSIP5
+     C                   ELSE
+     C                   MOVE      '0'           POSIP5
+     C                   ENDIF
+     C                   CLEAR                   NROIP5
+     C                   Z-ADD     ARE311        PEXIP5
+     C                   Z-ADD     W_FEXI05      FEXIP5
+     C                   WRITE     PLR05I
+     C                   endif
+      * Trata Percepcion.
+      *
+DH003 * Identificacion de registro
+  |  C*****              If        TIP_REG = 'P'
+DH003 *
+     c                   movel     supn05        sup311
+     C                   MOVE      PERC_IIBB_DHL CODIP5
+     C                   movel     '1'           Marca_Existe
+      * Verifica percepción del proveedor.
+     C     KeyPLP05IB1   CHAIN     PLP05IB1                           99
+      *
+     C                   if        *IN99 = '0'
+     C     *CYMD         MOVE      FVH311_DHL    W_FEXI05
+     C                   IF        W_FEXI05 <> FEXIP5 OR
+     C                             APE311_DHL <> PEXIP5
+     C                   Z-ADD     APE311_DHL    PEXIP5
+     C                   Z-ADD     W_FEXI05      FEXIP5
+     C                   MOVE      '1'           POSIP5
+     C                   UPDATE    PLR05I
+DH003C***********        Z-ADD     APE311_DHL    APE311
+     C                   ENDIF
+      *
+     C                   else
+      *
+     C                   MOVE      CONO05        CONOP5
+     C                   MOVE      SUPN05        SUPNP5
+     C     *CYMD         MOVE      FVH311_DHL    W_FEXI05
+     C                   MOVE      PERC_IIBB_DHL CODIP5
+     C                   MOVE      '1'           POSIP5
+     C                   CLEAR                   NROIP5
+     C                   Z-ADD     APE311_DHL    PEXIP5
+     C                   Z-ADD     W_FEXI05      FEXIP5
+     C                   WRITE     PLR05I
+DH003C**************     Z-ADD     APE311_DHL    APE311
+     C                   endif
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 *
+DH002C                   if        Marca_Existe = '1'
+DH002C                   write     DZR311P
+DH002C                   endif
+      *            ******************
+     C*    KeyRAP80L01   reade     PLR05X                                 99
+DH001C     Keysup        reade     PLR05                                  99
+     C                   ENDdo
+DH003 * Identificacion de registro
+  |  C*****              Endif
+DH003 *
+      *----------------------------------------------------
+      *
+DH002C*                  if        Marca_Existe = '1'
+DH002C*                  write     DZR311P
+DH002C*                  endif
+      *
+     c                   endif
+      *
+     C                   IF        *IN80 = '0'
+     C                   DELETE    DZR310P
+     C                   ENDIF
+      *** Ciclo de lectura de bandeja de entrada
+     C                   read      DNZ310PTU                              80
+     C                   ENDDO
+      *** Ciclo de lectura de Clientes que no están en el padrón
+     C/Exec sql
+     C+ SET TRANSACTION ISOLATION LEVEL NO COMMIT
+     C/end-exec
+     C/Exec sql
+     C+ DECLARE CLIENTES SCROLL CURSOR FOR
+     C+ SELECT CONO05, CUSN05
+     C+ FROM SLP05l02 left join dzdhp11
+     C+ on(Corc05 = digits(CUI311))
+     C+ where CONO05 = :L#CONO
+     C+ and CUI311 is  NULL
+     C/end-exec
+     C/Exec sql
+     C+ Open CLIENTES
+     C/end-exec
+     C/Exec sql
+     C+ FETCH FIRST FROM CLIENTES
+     C+ INTO :CONO05, :CUSN05
+     C/end-exec
+     C                   dow       sqlcod = 0
+      * Verifica si tiene informado Percepción y si es así la desactiva
+     C     KeySLP05IB1   CHAIN     SLP05IB1                           99
+     C                   if        *IN99 = '0' and POSI05 <> '0'
+     C                   eval      POSI05 = '0'
+     C     *CYMD         move      fec_hoy_iso   FEXI05
+     C                   UPDATE    SLR05I
+     C                   endif
+     C/Exec sql
+     C+ FETCH NEXT  FROM CLIENTES
+     C+ INTO :CONO05, :CUSN05
+     C/end-exec
+     C                   enddo
+     C/Exec sql
+     C+ Close CLIENTES
+     C/end-exec
+      *
+      *** Ciclo de lectura de Proveedores que no están en el padrón
+      *
+     C/Exec sql
+     C+ SET TRANSACTION ISOLATION LEVEL NO COMMIT
+     C/end-exec
+     C/Exec sql
+     C+ DECLARE PROVEEDORES SCROLL CURSOR FOR
+     C+ SELECT CONO05, SUPN05
+     C+ FROM PLP05l03 left join dzdhp11
+     C+ on(vtid05 = digits(CUI311))
+     C+ where CONO05 = :L#CONO
+     C+ and CUI311 is  NULL
+     C/end-exec
+     C/Exec sql
+     C+ Open PROVEEDORES
+     C/end-exec
+     C/Exec sql
+     C+ FETCH FIRST FROM PROVEEDORES
+     C+ INTO :CONO05, :SUPN05
+     C/end-exec
+     C                   dow       sqlcod = 0
+      * Verifica si tiene informado Percepción y si es así la desactiva
+     C                   MOVE      PERC_IIBB     CODIP5
+     C     KeyPLP05IB1   CHAIN     PLP05IB1                           99
+     C                   if        *IN99 = '0' and POSIP5 <> '0'
+     C                   eval      POSIP5 = '0'
+     C     *CYMD         move      fec_hoy_iso   FEXIP5
+     C                   UPDATE    PLR05I
+     C                   endif
+     C                   MOVE      PERC_IIBB_DHL CODIP5
+     C     KeyPLP05IB1   CHAIN     PLP05IB1                           99
+     C                   if        *IN99 = '0' and POSI05 <> '0'
+     C                   eval      POSIP5 = '0'
+     C     *CYMD         move      fec_hoy_iso   FEXIP5
+     C                   UPDATE    PLR05I
+     C                   endif
+     C/Exec sql
+     C+ FETCH NEXT  FROM PROVEEDORES
+     C+ INTO :CONO05, :SUPN05
+     C/end-exec
+     c                   enddo
+     C/Exec sql
+     C+ Close PROVEEDORES
+     C/end-exec
+     C                   exsr      $EXIT
+      *
+      **************************************************************************
+     C     *INZSR        BEGSR
+      *
+     C     *DTAARA       DEFINE    *LDA          LDA
+     C                   IN        LDA
+      *
+     C     KeyCOMPANY    KLIST
+     C                   KFLD                    L#CONO
+     C     KeyCOMPANY    SETLL     FLR001
+     C     KeyCOMPANY    reade     FLR001
+      *
+     C     KeyRAP80L01   KLIST
+     C                   KFLD                    CONO05
+     C                   KFLD                    CUIT05
+      *
+DH001C     Keycus        KLIST
+     C                   KFLD                    L#CONO
+DH001C                   KFLD                    Corc05
+DH001C     Keysup        KLIST
+     C                   KFLD                    L#CONO
+DH001C                   KFLD                    vtid05
+      *
+     C     *LIKE         DEFINE    FEXI05        W_FEXI05
+      *
+     C     KeySLP05IB1   KLIST
+     C                   KFLD                    CONO05
+     C                   KFLD                    CUSN05
+     C                   KFLD                    CODI05
+      *
+     C     KeyPLP05IB1   KLIST
+     C                   KFLD                    CONO05
+     C                   KFLD                    SUPN05
+     C                   KFLD                    CODIP5
+      *
+     C                   ENDSR
+      **************************************************************************
+      *  $EXIT
+      **************************************************************************
+     C     $EXIT         BEGSR
+      *
+     C                   MOVE      *BLANKS       L#RTCD
+     C                   OUT       LDA
+     C                   MOVE      *ON           *INLR
+     C                   RETURN
+      *
+     C                   ENDSR
+     C******************************************************
+     C*      Copy standard error handling routine.
+     C******************************************************
+     C     *PSSR         begsr
+      *
+     c                   if        pssr <> '1'
+     C                   move      '1'           pssr              1
+     C                   dump
+     C                   seton                                        LR
+     C                   endif
+      *
+     c                   endsr     '*CANCL'

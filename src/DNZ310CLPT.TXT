@@ -1,0 +1,33 @@
+/**************************************************************/
+/*                                                            */
+/*  SYSTEM NAME..: SYSTEM21 351                               */
+/*  MODULE.......: TAX - IMPUESTOS.                           */
+/*  PROGRAM NAME.: TA BAJADA DE ALICUOTAS IIBB CLIEN/PROV.    */
+/*  PROGRAM NO...: DNZ310CLP                                  */
+/*  DATE.........: 09-10-2008                                 */
+/*  AUTHOR.......: SANCHEZ, MARCELO A. (GXXI)                 */
+/*  ANSWERLINK...: .......                                    */
+/*                                                            */
+/*  COMMENT......: FTP                                        */
+/**************************************************************/
+/*  MODIFICATION CONTROL                                      */
+/*  ~~~~~~~~~~~~~~~~~~~~                                      */
+/*  FIX NO.    BY   DATE     DESCRIPTION                      */
+/*  ~~~~~~~~  ~~~~ ~~~~~~~~  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+/*                                                                   */
+/*********************************************************************/
+PGM
+
+             CLRPFM     FILE(AEIBSPS3AR/QFTPSRC) MBR(DNZ310LOG)
+             CLRPFM     FILE(DZDHP11)
+             CLRPFM     FILE(AEIBSPF3AR/DNZ310P)
+
+             OVRDBF     FILE(INPUT) TOFILE(AEIBSPS3AR/QFTPSRC) +
+                          MBR(DNZ310GET)
+
+             OVRDBF     FILE(OUTPUT) TOFILE(AEIBSPS3AR/QFTPSRC) +
+                          MBR(DNZ310LOG)
+             FTP        RMTSYS('7.5.10.28')
+
+
+             ENDPGM

@@ -1,0 +1,293 @@
+     H Debug Option(*srcstmt : *NoDebugIO)
+     H*...............................................................*
+     H*                                                               *
+     H*   SYSTEM NAME...: Generaql Ledger                             *
+     H*   PROGRAM NO....: DZDH007                                     *
+     H*   DESCRIPTION...: Llena archivo tarifas sujeto (cliente-proveedor)
+     H*   AUTHOR........: GRUPOXXI - OAC                              *
+     H*   DATE..........: 2010/06/04                                  *
+     H* ..............................................................*
+      *****************************************************************
+      *  Modification Control                                         *
+      *  ~~~~~~~~~~~~~~~~~~~~                                         *
+      *  Fix No.    By   Date     Description                         *
+      *  ~~~~~~~~  ~~~~ ~~~~~~~~  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *
+      *                                                               *
+      *  DH001     OAC 2010/07/09 Incluye cod impuesto rbue
+      *  DH002     OAC 2010/08/30 genera cod impuesto perba para todos los rbue
+      *  DH003     LSU 2014/08/12 Cambios por separacion de archivo   *
+      *                           Padron en percepciones y Retenciones*
+      *-------------------------------------------------------------------
+     Fglparms   IF   E           K DISK    INFSR(*PSSR)
+     Fdzdhp11T1 IF   E           K DISK    INFSR(*PSSR)
+     Fsjttrfl1  UF a E           K DISK    INFSR(*PSSR)
+     Fsjttrfl2  iF   E           K DISK    rename(rsjttrf:sj2)
+      *-------------------------------------------------------------------
+     D PSTAT         ESDS                  EXTNAME(PSDS)
+      * Area local
+     D LDA           E DS                  EXTNAME(LDA)
+     D wfecha          DS            10
+     D wfec1                   1     10
+     D waa1                    1      4
+     D ws1                     5      5
+     D wmm1                    6      7
+     D ws2                     8      8
+     D wdd1                    9     10
+     D*
+     D wfech2          DS             8
+     D wfec2                   1      8
+     D waa2                    1      4
+     D wmm2                    5      6
+     D wdd2                    7      8
+      *-------------------------------------------------------------------
+     C     *DTAARA       DEFINE    *LDA          LDA
+     C                   IN        LDA
+      *
+DH001c     *like         define    cui311        cuitwk
+DH002c     *like         define    taxpct        wtasim
+DH002c     *like         define    taxfin        wfedes
+DH002c     *like         define    taxffn        wfehas
+DH002c     *like         define    taxtax        wimp30
+DH002c     *like         define    taxtax        wimp31
+      *
+     C     KEY60         KLIST
+     C                   KFLD                    L#CONO
+     C                   KFLD                    PMTP60
+     C                   KFLD                    PMCD60
+      *
+     C                   MOVEL     *BLANKS       PMTP60
+     C                   MOVEL     '45AR'        PMTP60
+      *
+      *codigo impuesto cliente
+     C                   MOVEL     *BLANKS       WCUIMP           20
+     C                   MOVEL     *BLANKS       PMCD60
+     C*dh001             MOVEL     'CUS3'        PMCD60
+DH001C                   MOVEL     'CUS30'       PMCD60
+     C                   MOVE      *BLANKS       DESC60
+     C     KEY60         CHAIN     GLPARMS                            99
+     C  N99              MOVEL     DESC60        WCUIMP
+      *
+      *codigo impuesto proveedor
+     C                   MOVEL     *BLANKS       WSUIMP           20
+DH001C                   MOVEL     *blanks       PMCD60
+     C*dh001             MOVEL     'SUP3'        PMCD60
+DH001C                   MOVEL     'SUP30'       PMCD60
+     C     KEY60         CHAIN     GLPARMS                            99
+     C  N99              MOVEL     DESC60        WSUIMP
+DH002c                   movel     wsuimp        wimp30
+      *
+      *codigo impuesto proveedor dhl
+DH001C                   MOVEL     *BLANKS       WSUIM2           20
+ ]   C                   MOVE      *BLANKS       DESC60
+ ]   C                   MOVEL     *blanks       PMCD60
+ ]   C                   MOVEL     'SUP31'       PMCD60
+ ]   C     KEY60         CHAIN     GLPARMS                            99
+DH001C  N99              MOVEL     DESC60        WSUIM2
+DH002c                   movel     wsuim2        wimp31
+DH001C  N99              z-add     val160        cuitwk
+      *
+     ** PROCESO PRINCIPAL **
+      *
+     C                   EXSR      SLLENA
+      *
+     C                   MOVE      '1'           *INLR
+     C                   OUT       LDA
+      *-------------------------------------------------------------------
+     C     SLLENA        BEGSR
+     **
+     C     key           setll     Dzdhp11T1
+     C                   read      Dzdhp11T1                              80
+     C                   DOW       *IN80 = '0'
+     **
+     C                   clear                   rsjttrf
+     **
+     C                   movel     con311        ciacia
+     ** fecha desde
+     C                   movel     *blanks       wfecha
+     C                   movel     FVD311        wfecha
+     C                   movel     *blanks       wfech2
+     C                   movel     waa1          waa2
+     C                   movel     wmm1          wmm2
+     C                   movel     wdd1          wdd2
+     C                   movel     wfech2        taxfin
+     ** fecha hasta
+     C                   movel     *blanks       wfecha
+     C                   movel     FVh311        wfecha
+     C                   movel     *blanks       wfech2
+     C                   movel     waa1          waa2
+     C                   movel     wmm1          wmm2
+     C                   movel     wdd1          wdd2
+     ** datos cliente
+     C                   movel     '000'         sjtdir
+     C                   if        cus311 <> *blanks
+     C                   movel     cus311        sjtcod
+     C                   movel     'C'           sjttpo
+     C                   movel     WCUIMP        TAXTAX
+     C                   Exsr      sclien
+     C                   END
+     ** datos proveedor
+     C                   if        sup311 <> *blanks
+     C                   movel     sup311        sjtcod
+     C                   movel     'P'           sjttpo
+DH001** si proveedor dhl
+  |  C                   movel     *blanks       TAXTAX
+  |  c                   if        cui311 = cuitwk
+  |  C                   movel     WSUIM2        TAXTAX
+DH001C                   else
+     C                   movel     WSUIMP        TAXTAX
+DH001C                   END
+     C                   Exsr      sprove
+     C                   END
+     **
+     C                   read      Dzdhp11T1                              80
+     C                   ENDdo
+     **
+     ** crea registros proveedor impuesto dhl
+DH002C                   Exsr      sprov30
+     **
+     C                   ENDSR
+      *-------------------------------------------------------------------
+     C     sclien        BEGSR
+     C*
+     C     keysjt        setll     sjttrfl1
+     C     keysjt        reade     sjttrfl1                               98
+     C                   if        *IN98 = '0'
+     C*                  if        ArE311  <>    taxpct
+     C*                  z-add     ArE311        taxpct
+     C                   if        ApE311  <>    taxpct
+     C                   z-add     ApE311        taxpct
+     C                   update    rsjttrf
+     C                   END
+     C                   else
+     C                   movel     wfech2        taxffn
+     ** datos cliente
+     C                   if        cus311 <> *blanks
+     C                   movel     cus311        sjtcod
+     C                   movel     '000'         sjtdir
+     C                   movel     'C'           sjttpo
+     C*                  z-add     ArE311        taxpct
+     C                   z-add     ApE311        taxpct
+     C                   movel     WCUIMP        TAXTAX
+DH001C                   movel     *all'9'       wvar13           13
+DH001C                   move      wvar13        wvan13           13 0
+DH001C                   z-add     wvan13        taxvmx
+     C                   write     rsjttrf
+     C                   END
+     **
+     C                   END
+     C*
+     C                   ENDSR
+      *-------------------------------------------------------------------
+     C     sprove        BEGSR
+     C*
+     C     keysjt        setll     sjttrfl1
+     C     keysjt        reade     sjttrfl1                               98
+     C                   if        *IN98 = '0'
+DH008c                   if        cui311 = cuitwk
+  |  C                   if        APE311 <> taxpct
+  |  C                   z-add     APE311        taxpct
+  |  C                   update    rsjttrf
+     C* graba impuesto proveedor dhl
+DH002C                   exsr      simpdhl
+DH001C                   END
+DH001C                   else
+     C*                  if        APE311 <> taxpct
+     C*                  z-add     APE311        taxpct
+     C                   if        ArE311 <> taxpct
+     C                   z-add     ArE311        taxpct
+     C                   update    rsjttrf
+     C                   END
+DH001C                   END
+     C                   else
+     C                   movel     wfech2        taxffn
+     ** datos proveedor
+     C                   if        sup311 <> *blanks
+     C                   movel     sup311        sjtcod
+     C                   movel     '000'         sjtdir
+     C                   movel     'P'           sjttpo
+DH001** si proveedor dhl
+  |  C                   movel     *blanks       TAXTAX
+  |  c                   if        cui311 = cuitwk
+DH001C*DH003             z-add     APE311        taxpct
+DH003C                   z-add     ARE311        taxpct
+  |  C                   movel     WSUIM2        TAXTAX
+     C* guarda impuesto proveedor dhl
+DH002C                   exsr      simpdhl
+DH001C                   else
+     C*                  z-add     APE311        taxpct
+     C                   z-add     ArE311        taxpct
+     C                   movel     WSUIMP        TAXTAX
+DH001C                   END
+DH001C                   movel     *all'9'       wvar13
+DH001C                   move      wvar13        wvan13
+DH001C                   z-add     wvan13        taxvmx
+     C                   write     rsjttrf
+     C                   END
+     **
+     C                   END
+     C*
+     C                   ENDSR
+DH002 *-------------------------------------------------------------------
+     C* guarda datos impuesto dhl
+     C     simpdhl       BEGSR
+     C*
+DH002c                   z-add     taxpct        wtasim
+DH002c                   movel     *blanks       wfedes
+DH002c                   movel     *blanks       wfehas
+DH002c                   movel     taxfin        wfedes
+DH002c                   movel     taxffn        wfehas
+     C*
+     C                   ENDSR
+DH002 *-------------------------------------------------------------------
+     C* crea registros proveedor
+     C     sprov30       BEGSR
+     C*
+     C     Kprov         KLIST
+     C                   KFLD                    L#CONO
+     C                   KFLD                    SJTTPO
+     C*                  KFLD                    TAXTAX
+     C                   KFLD                    wimp30
+     C*                  KFLD                    TAXFIN
+     C                   KFLD                    wfedes
+     C*                  KFLD                    TAXFFN
+     C                   KFLD                    wfehas
+     C*                  KFLD                    SJTCOD
+     C*
+     C                   movel     'P'           SJTTPO
+     C                   movel     wimp31        TAXTAX
+     C                   movel     wfedes        TAXFIN
+     C                   movel     wfehas        TAXFFN
+     C*
+     C     kprov         setll     sjttrfl2
+     C     kprov         reade     sjttrfl2                               99
+     C                   DOW       *IN99 = '0'
+     C                   z-add     wtasim        taxpct
+     C                   movel     wimp31        TAXTAX
+     C                   write     rsjttrf
+     C                   movel     wimp30        TAXTAX
+     C     kprov         reade     sjttrfl2                               99
+DH002C                   ENDdo
+     **
+DH002C                   ENDSR
+      *-------------------------------------------------------------------
+     C     *INZSR        BEGSR
+     C*
+      * Tarifas
+     C     KEY           KLIST
+     C                   KFLD                    L#CONO
+     **
+     C     KEYsjt        KLIST
+     C                   KFLD                    CIACIA
+     C                   KFLD                    SJTTPO
+     C                   KFLD                    SJTCOD
+     C                   KFLD                    SJTDIR
+     C                   KFLD                    TAXTAX
+     C                   KFLD                    TAXFIN
+     C*                  KFLD                    TAXVMN
+     **
+     C                   ENDSR
+     C*------------------------------------------------------------------
+      * PSSR - Error handling routine
+      /COPY OSLCOPYSRC/QRPGLESRC,PSSR
+      * @DTO - Convert date from internal to external format
+      /COPY OSLCOPYSRC/QRPGLESRC,@DTO@C
